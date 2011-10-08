@@ -6,7 +6,13 @@
 
 /* A variation on Thorelli's algorithm.  This (MyTraverse) currently
  * only works on trees, but can probably be made on arbitrary DAGs
- * too.  That's for another afternoon. :) */
+ * too.  That's for another afternoon. :)
+
+ * Note that this is not a _pure_ graph theoretic algorithm -- I don't
+ * even think it is possible to implement something like this in
+ * Python or Java.  One very crucial requirement I have here is the
+ * alignment of data structures being >= 2 bytes.
+ */
 
 using namespace std;
 
