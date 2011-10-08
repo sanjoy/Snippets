@@ -69,7 +69,20 @@ void Do(Node *Value) {
 }
 
 /* The main traverse function.  Traverses the tree in depth first
- * order, invoking `Do' on each node. */
+ * order, invoking `Do' on each node.
+ *
+ * Note that this leaves the tree in a mutated, unusable state.  This
+ * is easily fixed, though -- we need a "sanitize" function which
+ * traverses the tree in exactly the same way as MyTraverse, except
+ * that it
+ *
+ * a. Does not call "Do".
+ * b. Uses MarkPtr, UnmarkPtr and IsMarkedPtr in exactly the opposite
+ * way as MyTraverse.
+ *
+ * It could even be possible to templatize (or otherwise parameterize)
+ * this function itself to do both.
+ */
 void MyTraverse(Node *Root) {
   Node *Parent = 0, *Current = Root, *LastChild = 0;
   Do(Root);
