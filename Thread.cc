@@ -19,19 +19,6 @@ struct Node {
     Content[0] <<= 2;
     Content[0] |= 1;
   }
-
-  int getHeader() {
-    uintptr_t Tmp = Content[0] >> 2;
-    return static_cast<int>(Tmp);
-  }
-
-  bool isHeaderPointer() {
-    return IsPointer(Content[0]);
-  }
-
-  Node *headerAsPointer() {
-    return reinterpret_cast<Node *>(Content[0]);
-  }
 };
 
 void Thread(vector<Node *>& Heap) {
