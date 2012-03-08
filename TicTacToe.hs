@@ -36,6 +36,8 @@
 -- has already won.  Trying to make a move in either of the two cases
 -- raises a type error.
 
+-- There is a second example at the end of the file.
+
 import Data.List
 
 -- For convenience's sake, the rows and columns are numbered
