@@ -131,11 +131,10 @@ instance (Free board pos res', Not res' result) =>
 -- three predicates don't differentiate between the two players.  The
 -- system works by dividing up the board into two sub-boards, each
 -- corresponding to one player and then calling these predicates on
--- these sub-boards seaprately.
+-- these sub-boards separately.
 
--- Check if the sub-board has a horizontal or vertical line.  This
--- checks for a horizontal or vertical like passing through (const,
--- const).
+-- Check if the sub-board has a horizontal or vertical line passing
+-- through (const, const).
 class BoardHasLine board const result | board const -> result
 instance (Taken board (const, A) c0,
           Taken board (const, B) c1,
@@ -148,7 +147,7 @@ instance (Taken board (const, A) c0,
           Or c r result) =>
          BoardHasLine board const result
 
--- Check if the sub-board a diagonal.
+-- Check if the sub-board has a diagonal.
 class BoardHasDiag board result | board -> result
 instance (Taken board (A, A) a0,
           Taken board (B, B) a1,
@@ -169,8 +168,7 @@ instance (BoardHasDiag board r0,
           Or r0 r1 r4, Or r2 r4 r5, Or r3 r5 result) =>
          Winning board result
 
--- Used to divide the board into sub-boards corresponding to each
--- player.
+-- Divide the board into sub-boards corresponding to each player.
 class Filter board player subboard | board player -> subboard
 instance Filter () a ()
 instance (Filter rest F restR) => Filter (a, rest) T (a, restR)
