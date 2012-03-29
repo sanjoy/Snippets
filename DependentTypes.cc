@@ -2,7 +2,7 @@
 #include <utility>
 #include <vector>
 
-template<class T>
+template<typename T>
 struct S { typedef T Previous;
   enum { ToInt = T::ToInt + 1 };
 };
@@ -21,39 +21,40 @@ struct ToType<0> {
 
 #define P(n) typename n::Previous
 #define TO_INT(n) n::ToInt
+#define TO_TYPE(n) typename ToType<n>::TypeValue
 
-template<class A, class B, class C>
+template<typename A, typename B, typename C>
 struct Func2 {
   typedef C functionType(A, B);
 };
 
-template<class T, class N>
+template<typename T, typename N>
 struct List {
   T data;
   List<T, P(N)> next;
 
-  template<class A>
+  template<typename A>
   A foldl(typename Func2<A, T, A>::functionType f, A a) {
     return next.foldl(f, f(a, data));
   }
 };
 
-template<class T>
+template<typename T>
 struct List<T, Z> {
-  template<class A>
+  template<typename A>
   A foldl(typename Func2<A, T, A>::functionType f, A a) {
     return a;
   }
 };
 
-template<class T, class N>
+template<typename T, typename N>
 List<T, S<N> > push(List<T, N> prev, T &data) {
   List<T, S<N> > newHead;
   newHead.next = prev;
   return newHead;
 };
 
-template<class T, class N>
+template<typename T, typename N>
 struct Sorter {
   static void sort(List<T, N> &list) {
     List<T, P(N)> rest = list.next;
@@ -66,12 +67,12 @@ struct Sorter {
   }
 };
 
-template<class T>
+template<typename T>
 struct Sorter<T, S<Z> > {
   static void sort(List<T, S<Z> > &list) { };
 };
 
-template<class N>
+template<typename N>
 struct ListCreator {
   static List<int, N> create() {
     List<int, N> newHead;
@@ -86,13 +87,13 @@ struct ListCreator<Z> {
   static List<int, Z> create() { return List<int, Z>();  }
 };
 
-template<class T>
+template<typename T>
 std::vector<T> accumulate(std::vector<T> in, T t) {
   in.push_back(t);
   return in;
 }
 
-template<class T, class Out>
+template<typename T, typename Out>
 void printVector(std::vector<T> v, Out &out) {
   for (typename std::vector<T>::const_iterator i = v.begin(), e = v.end();
        i != e; ++i)
@@ -100,7 +101,7 @@ void printVector(std::vector<T> v, Out &out) {
 }
 
 void SortTest() {
-  typedef ToType<100>::TypeValue hundred;
+  typedef TO_TYPE(100) hundred;
   List<int,  hundred> list = ListCreator<hundred>::create();
   std::cout << "Initial list: ";
   {
