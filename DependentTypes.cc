@@ -100,6 +100,33 @@ void printVector(std::vector<T> v, Out &out) {
     out << *i << " ";
 }
 
+template<typename A, typename B>
+struct Lt {
+  typedef typename Lt<P(A), P(B)>::Flag Flag;
+};
+
+template<typename B>
+struct Lt<Z, S<B> > {
+  typedef bool Flag;
+};
+
+template<typename T, typename N, typename M>
+struct Idx {
+  typedef typename Lt<M, N>::Flag Flag;
+
+  static T idx(List<T, N > list) {
+    return Idx<T, P(N), P(M)>::idx(list.next);
+  }
+};
+
+template<typename T, typename N>
+struct Idx<T, N, Z> {
+  typedef typename Lt<Z, N>::Flag Flag;
+  static T idx(List<T, N> list) {
+    return list.data;
+  }
+};
+
 void SortTest() {
   typedef TO_TYPE(100) hundred;
   List<int,  hundred> list = ListCreator<hundred>::create();
@@ -115,6 +142,9 @@ void SortTest() {
     printVector(list.foldl(accumulate, std::vector<int>()), std::cout);
   }
   std::cout << std::endl;
+
+  int k = Idx<int, hundred, TO_TYPE(99)>::idx(list);
+  std::cout << "99th element is " << k << std::endl;
 }
 
 int main() {
