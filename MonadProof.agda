@@ -6,21 +6,6 @@ open import Relation.Binary.PropositionalEquality
 
 -- A consistency proof of the Maybe and State monads.
 
-law₀ : {ℓ : Level} → (m : Set ℓ → Set ℓ) → ({A : Set ℓ} → A → m A) →
-                     ({A B : Set ℓ} → m A → (A → m B) → m B) → Set (L.suc ℓ)
-law₀ {ℓ} m return bind = (A B : Set ℓ) → (a : A) → (f : A → m B) → 
-                         (bind (return a) f) ≡ f a
-
-law₁ : {ℓ : Level} → (m : Set ℓ → Set ℓ) → ({A : Set ℓ} → A → m A) →
-                     ({A B : Set ℓ} → m A → (A → m B) → m B) → Set (L.suc ℓ)
-law₁ {ℓ} m return bind = (A : Set ℓ) → (a : A) → (v : m A) → (bind v return) ≡ v
-
-law₂ : {ℓ : Level} → (m : Set ℓ → Set ℓ) →
-                     ({A B : Set ℓ} → m A → (A → m B) → m B) → Set (L.suc ℓ)
-law₂ {ℓ} m bind = (A B C : Set ℓ) → (a : m A) → (f : A → m B) → (g : B → m C) →
-                  (bind (bind a f) g) ≡ (bind a (λ x → (bind (f x) g)))
-
-
 record Monad {ℓ : Level} (m : Set ℓ → Set ℓ) : Set (L.suc ℓ) where
   constructor monad
   field
@@ -45,27 +30,24 @@ data Maybe {ℓ : Level} (A : Set ℓ) : Set ℓ where
   just : A → Maybe A
   nothing : Maybe A
 
-maybeReturn : {ℓ : Level} → {A : Set ℓ} → A → Maybe A
-maybeReturn = just
-
-maybeBind : {ℓ : Level} → {A B : Set ℓ} → Maybe A → (A → Maybe B) → Maybe B
-maybeBind (just y) f = f y
-maybeBind nothing f = nothing
-
 maybeMonad : Monad {L.zero} Maybe
-maybeMonad = monad maybeReturn maybeBind p₀ p₁ p₂
-  where p₀ : {ℓ : Level} → (A B : Set ℓ) → (a : A) → (f : A → Maybe B) → 
-             (maybeBind (maybeReturn a) f) ≡ f a
+maybeMonad = monad just bind p₀ p₁ p₂
+  where bind : {ℓ : Level} → {A B : Set ℓ} → Maybe A → (A → Maybe B) → Maybe B
+        bind (just y) f = f y
+        bind nothing f = nothing
+        
+        p₀ : {ℓ : Level} → (A B : Set ℓ) → (a : A) → (f : A → Maybe B) → 
+             (bind (just a) f) ≡ f a
         p₀ _ _ _ _ = refl
 
         p₁ : {ℓ : Level} → (A : Set ℓ) → (a : A) → (v : Maybe A) →
-             (maybeBind v maybeReturn) ≡ v
+             (bind v just) ≡ v
         p₁ _ _ (just y) = refl
         p₁ _ _ nothing = refl
 
         p₂ : {ℓ : Level} → (A B C : Set ℓ) → (a : Maybe A) → (f : A → Maybe B) →
-             (g : B → Maybe C) → (maybeBind (maybeBind a f) g) ≡ 
-                                   (maybeBind a (λ x → (maybeBind (f x) g)))
+             (g : B → Maybe C) → (bind (bind a f) g) ≡ 
+                                   (bind a (λ x → (bind (f x) g)))
         p₂ A B C (just y) f g = refl
         p₂ A B C nothing f g = refl
 
@@ -92,29 +74,29 @@ record State {ℓ : Level} (A : Set ℓ) : Set ℓ where
 ↓ : {ℓ : Level} {A : Set ℓ} → State A → ℕ → ℕ × A
 ↓ = State.state
 
-stateReturn : {ℓ : Level} → {A : Set ℓ} → A → State A
-stateReturn a = new-state (λ n → (n , a))
-
-stateBind : {ℓ : Level} → {A B : Set ℓ} → State A → (A → State B) → State B
-stateBind {B = B} k f = new-state (λ old → ↓ (f (proj₂ (↓ k old)))
-                        (proj₁ (↓ k old)))
-
 type : {ℓ : Level} → (A : Set ℓ) → A → A
 type _ a = a
 
 stateMonad : Monad {L.zero} State
-stateMonad = monad stateReturn stateBind p₀ p₁ p₂
-  where p₀ : {ℓ : Level} → (A B : Set ℓ) → (a : A) → (f : A → State B) → 
-             (stateBind (stateReturn a) f) ≡ f a
+stateMonad = monad return bind p₀ p₁ p₂
+  where return : {ℓ : Level} → {A : Set ℓ} → A → State A
+        return a = new-state (λ n → (n , a))
+
+        bind : {ℓ : Level} → {A B : Set ℓ} → State A → (A → State B) → State B
+        bind {B = B} k f = new-state (λ old → ↓ (f (proj₂ (↓ k old)))
+                           (proj₁ (↓ k old)))
+
+        p₀ : {ℓ : Level} → (A B : Set ℓ) → (a : A) → (f : A → State B) → 
+             (bind (return a) f) ≡ f a
         p₀ _ _ _ _ = refl
 
         p₁ : {ℓ : Level} → (A : Set ℓ) → (a : A) → (v : State A) →
-             (stateBind v stateReturn) ≡ v
+             (bind v return) ≡ v
         p₁ _ _ _ = refl
 
         p₂ : {ℓ : Level} → (A B C : Set ℓ) → (a : State A) → (f : A → State B) →
-             (g : B → State C) → (stateBind (stateBind a f) g) ≡ 
-             (stateBind a (λ x → (stateBind (f x) g)))
+             (g : B → State C) → (bind (bind a f) g) ≡ 
+             (bind a (λ x → (bind (f x) g)))
         p₂ _ _ _ _ _ _ = refl
 
 getState : State ℕ
@@ -129,5 +111,5 @@ putState n = new-state (λ _ → (n , _))
 -- -- clashes with the maybe monad declaration.  I'm not sure how this
 -- -- can be fixed.
 
-testState : State ℕ
-testState = stateReturn 42
+-- testState : State ℕ
+-- testState = ⟦ 42 ⟧
