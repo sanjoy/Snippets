@@ -21,23 +21,24 @@ law₂ {ℓ} m bind = (A B C : Set ℓ) → (a : m A) → (f : A → m B) → (g
                   (bind (bind a f) g) ≡ (bind a (λ x → (bind (f x) g)))
 
 
-data Monad {ℓ : Level} (m : Set ℓ → Set ℓ)
-           (return : {A : Set ℓ} → A → m A)
-           (bind : {A B : Set ℓ} → m A → (A → m B) → m B)
-           : Set (L.suc ℓ) where
-  monad : (law₀ m return bind) → (law₁ m return bind) → (law₂ m bind) →
-          Monad m return bind
+record Monad {ℓ : Level} (m : Set ℓ → Set ℓ) : Set (L.suc ℓ) where
+  constructor monad
+  field
+    return : {A : Set ℓ} → A → m A
+    bind : {A B : Set ℓ} → m A → (A → m B) → m B
+    p₀ : (A B : Set ℓ) → (a : A) → (f : A → m B) → (bind (return a) f) ≡ f a
+    p₁ : (A : Set ℓ) → (a : A) → (v : m A) → (bind v return) ≡ v
+    p₂ : (A B C : Set ℓ) → (a : m A) → (f : A → m B) → (g : B → m C) → 
+         (bind (bind a f) g) ≡ (bind a (λ x → (bind (f x) g)))
 
 
 _>>=_ : {ℓ : Level} → {A B : Set ℓ} → {m : Set ℓ → Set ℓ} →
-        {return : ∀ {A} → A → m A} → {bind : ∀ {A B} → m A → (A → m B) → m B} →
-        ⦃ v : Monad m return bind ⦄ → m A → (A → m B) → m B
-_>>=_ {bind = bind} a b = bind a b
+        ⦃ v : Monad m ⦄ →  m A → (A → m B) → m B
+_>>=_ ⦃ v = v ⦄ a b = Monad.bind v a b
 
 ⟦_⟧ : {ℓ : Level} → {A : Set ℓ} → {m : Set ℓ → Set ℓ} →
-      {return : ∀ {A} → A → m A} → {bind : ∀ {A B} → m A → (A → m B) → m B} →
-      ⦃ v : Monad m return bind ⦄ → A → m A
-⟦_⟧ {return = return} a = return a
+      ⦃ v : Monad m ⦄ → A → m A
+⟦_⟧ ⦃ v = v ⦄ a = Monad.return v a
 
 
 data Maybe {ℓ : Level} (A : Set ℓ) : Set ℓ where
@@ -51,8 +52,8 @@ maybeBind : {ℓ : Level} → {A B : Set ℓ} → Maybe A → (A → Maybe B) �
 maybeBind (just y) f = f y
 maybeBind nothing f = nothing
 
-maybeMonad : Monad {L.zero} Maybe maybeReturn maybeBind
-maybeMonad = monad p₀ p₁ p₂
+maybeMonad : Monad {L.zero} Maybe
+maybeMonad = monad maybeReturn maybeBind p₀ p₁ p₂
   where p₀ : {ℓ : Level} → (A B : Set ℓ) → (a : A) → (f : A → Maybe B) → 
              (maybeBind (maybeReturn a) f) ≡ f a
         p₀ _ _ _ _ = refl
@@ -95,66 +96,26 @@ stateReturn : {ℓ : Level} → {A : Set ℓ} → A → State A
 stateReturn a = new-state (λ n → (n , a))
 
 stateBind : {ℓ : Level} → {A B : Set ℓ} → State A → (A → State B) → State B
-stateBind {B = B} k f = new-state (λ old → ↓ (f (proj₂ (↓ k old))) (proj₁ (↓ k old)))
+stateBind {B = B} k f = new-state (λ old → ↓ (f (proj₂ (↓ k old)))
+                        (proj₁ (↓ k old)))
 
 type : {ℓ : Level} → (A : Set ℓ) → A → A
 type _ a = a
 
-stateMonad : Monad {L.zero} State stateReturn stateBind
-stateMonad = monad p₀ p₁ p₂
+stateMonad : Monad {L.zero} State
+stateMonad = monad stateReturn stateBind p₀ p₁ p₂
   where p₀ : {ℓ : Level} → (A B : Set ℓ) → (a : A) → (f : A → State B) → 
              (stateBind (stateReturn a) f) ≡ f a
-        p₀ A B a f = let equiv₀ : (↓ (stateReturn a) ≡ ↓ (stateReturn a))
-                         equiv₀ = refl
-                         main : (stateBind (stateReturn a) f) ≡
-                                new-state (λ old → ↓ (f a) old)
-                         main = cong (λ k → new-state
-                                        (λ old →
-                                          ↓ (f (proj₂ (k old)))
-                                          (proj₁ (k old)))) equiv₀
-                     in trans main (elim (f a))
-           where elim : (f : State B) → (new-state (λ old → ↓ f old) ≡ f)
-                 elim f = let a = cong (λ t → ↓ t) (type (f ≡ f) refl)
-                              b : ((λ old → ↓ f old) ≡ ↓ f)
-                              b = cong (λ t → (λ old → t old)) a
-                              equiv₁ : (a : State B) → new-state (↓ a) ≡ a
-                              equiv₁ _ = refl
-                          in trans (cong (λ t → new-state t) b) (equiv₁ f)
+        p₀ _ _ _ _ = refl
 
         p₁ : {ℓ : Level} → (A : Set ℓ) → (a : A) → (v : State A) →
              (stateBind v stateReturn) ≡ v
-        p₁ {ℓ = ℓ} A a k =
-              let lem₀ : (λ (a : ℕ × A) →
-                       ↓ (stateReturn (proj₂ a)) (proj₁ a)) ≡
-                        λ (a : ℕ × A) → ↓ (new-state λ n → (n , proj₂ a)) (proj₁ a)
-                  lem₀ = cong (λ t (a : ℕ × A) → ↓ (t (proj₂ a)) (proj₁ a)) (type (
-                          (λ s → stateReturn s) ≡ (λ s → new-state λ n → (n , s))) refl)
-                  lem₁ : (λ (a : ℕ × A) → ↓ (new-state λ n → (n , proj₂ a)) (proj₁ a)) ≡
-                                            (λ (a : ℕ × A) → (λ n → (n , proj₂ a)) (proj₁ a))
-                  lem₁ = cong (λ t → 
-                               (λ (a : ℕ × A) → (t (λ n → (n , proj₂ a))) (proj₁ a)))
-                         (type ((λ x → ↓ (new-state x)) ≡ (λ x → x)) refl)
-                  lem-id : (λ (a : ℕ × A) → ↓ (stateReturn (proj₂ a)) (proj₁ a)) ≡
-                                             λ (a : ℕ × A) → (proj₁ a , proj₂ a)
-                  lem-id = (trans lem₀ lem₁)
-              in cong (λ t → new-state (λ old → t (↓ k old))) lem-id
+        p₁ _ _ _ = refl
 
         p₂ : {ℓ : Level} → (A B C : Set ℓ) → (a : State A) → (f : A → State B) →
              (g : B → State C) → (stateBind (stateBind a f) g) ≡ 
              (stateBind a (λ x → (stateBind (f x) g)))
-        p₂ A B C a f g = let t₀ : (stateBind (stateBind a f) g) ≡
-                                  (new-state (λ old →
-                                    ↓ (g (proj₂
-                                         (↓ (f (proj₂ (↓ a old))) (proj₁ (↓ a old)))))
-                                    (proj₁ (↓ (f (proj₂ (↓ a old))) (proj₁ (↓ a old))))))
-                             t₀ = refl
-                             t₁ : (stateBind a (λ x → (stateBind (f x) g))) ≡
-                                  (new-state (λ old →
-                                    ↓ (g (proj₂ (↓ (f (proj₂ (↓ a old)))
-                                                  (proj₁ (↓ a old)))))
-                                    (proj₁ (↓ (f (proj₂ (↓ a old))) (proj₁ (↓ a old))))))
-                             t₁ = refl
-            in trans t₀ (sym t₁)
+        p₂ _ _ _ _ _ _ = refl
 
 getState : State ℕ
 getState = new-state (λ n → (n , n))
@@ -164,9 +125,9 @@ record Unit : Set where
 putState : ℕ → State Unit
 putState n = new-state (λ _ → (n , _))
 
--- I can't get it to work with ⟦ ⟧ and >>=, probably because of some
--- clashes with the maybe monad declaration.  I'm not sure how this
--- can be fixed.
+-- -- I can't get it to work with ⟦ ⟧ and >>=, probably because of some
+-- -- clashes with the maybe monad declaration.  I'm not sure how this
+-- -- can be fixed.
 
 testState : State ℕ
 testState = stateReturn 42
