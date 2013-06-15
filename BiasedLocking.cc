@@ -2,6 +2,7 @@
 #include <unistd.h>
 
 #include <cassert>
+#include <cstdlib>
 
 #include "nanotimer.hpp"
 
@@ -209,12 +210,14 @@ static void bench_threads(string kind, int iteration_count) {
   if (shared_location_a != (iteration_count + 1) ||
       shared_location_b != (iteration_count + 1)) {
     printf("error: %s failed!\n", kind.c_str());
+    abort();
   }
 }
 
 int main() {
   const int kIterationCount = 1024 * 1024;
-  bench_threads<PthreadLock>("bench_threads; pthread_lock", kIterationCount);
-  bench_threads<BiasedLock>("bench_threads; biased_lock", kIterationCount);
-
+  while (true) {
+    bench_threads<PthreadLock>("bench_threads; pthread_lock", kIterationCount);
+    bench_threads<BiasedLock>("bench_threads; biased_lock", kIterationCount);
+  }
 }
