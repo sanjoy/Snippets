@@ -72,16 +72,17 @@ class BiasedLock {
           goto retry;
         }
 
-        thread_id_ = pthread_self();
+        biasing_thread_id_ = pthread_self();
         break;
 
       case kStateBiasedAndLocked:
-        assert(thread_id_ != pthread_self() && "this lock is non-recurrent");
+        assert(biasing_thread_id_ != pthread_self() &&
+               "this lock is non-recurrent");
         SPIN_WITH_EXPONENTIAL_BACKOFF(state_ == kStateBiasedAndLocked);
         goto retry;
 
       case kStateBiasedAndUnlocked:
-        if (thread_id_ == pthread_self()) {
+        if (biasing_thread_id_ == pthread_self()) {
           state_ = kStateBiasedAndLocked;
           if (UNLIKELY(SequentiallyConsistentLoad(&revoke_requested_))) {
             state_ = kStateDefault;
@@ -133,7 +134,7 @@ class BiasedLock {
   };
 
   PthreadLock base_lock_;
-  pthread_t thread_id_;
+  pthread_t biasing_thread_id_;
 
   volatile unsigned state_;
   volatile bool revoke_requested_;
