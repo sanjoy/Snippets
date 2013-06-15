@@ -14,6 +14,7 @@ using namespace utils;
 #define UNLIKELY(condition) __builtin_expect(condition, 0)
 #define LIKELY(condition)   __builtin_expect(condition, 1)
 #define MemoryBarrier __sync_synchronize
+#define SequentiallyConsistentLoad(ptr) __atomic_load_n(ptr, __ATOMIC_SEQ_CST)
 
 const long kBackoffUsecsInitialDelay = 5;
 const long kBackoffUsecsDelayLimit = 1024 * 8;
@@ -51,7 +52,7 @@ class PthreadLock {
 class BiasedLock {
  public:
   BiasedLock() : state_(kStateUnbiased),
-                 has_attempted_revoke_(false) { }
+                 revoke_requested_(false) { }
 
   void lock() {
     useconds_t failed_revoking_delay = kBackoffUsecsInitialDelay;
@@ -75,12 +76,12 @@ class BiasedLock {
       case kStateBiasedAndUnlocked:
         if (thread_id_ == pthread_self()) {
           state_ = kStateBiasedAndLocked;
-          if (UNLIKELY(has_attempted_revoke_)) {
+          if (UNLIKELY(SequentiallyConsistentLoad(&revoke_requested_))) {
             state_ = kStateDefault;
             goto retry;
           }
         } else {
-          has_attempted_revoke_ = true;
+          revoke_requested_ = true;
           MemoryBarrier();
           bool result = CompareAndSwapBool(&state_, kStateBiasedAndUnlocked,
                                            kStateDefault);
@@ -128,7 +129,7 @@ class BiasedLock {
   pthread_t thread_id_;
 
   volatile unsigned state_;
-  volatile bool has_attempted_revoke_;
+  volatile bool revoke_requested_;
 };
 
 class Thread {
