@@ -9,6 +9,12 @@
 using namespace std;
 using namespace utils;
 
+const bool kCheckThoroughly = false;
+
+static void ArbitraryDelay() {
+  if (kCheckThoroughly) usleep(rand() % 3);
+}
+
 #define CompareAndSwapBool(ptr, oldval, newval)         \
   __sync_bool_compare_and_swap(ptr, oldval, newval)
 
@@ -157,14 +163,12 @@ class Thread {
 };
 
 template<typename LockTy>
-class LockingThread : public Thread {
+class TestThread : public Thread {
  public:
-  LockingThread(LockTy *the_lock, volatile long *shared_location_a,
-                volatile long *shared_location_b, const int run_count,
-                const int ms_wait_time)
+  TestThread(LockTy *the_lock, volatile bool *shared_flag, const int run_count,
+             const int ms_wait_time)
       : the_lock_(the_lock),
-        shared_location_a_(shared_location_a),
-        shared_location_b_(shared_location_b),
+        shared_flag_(shared_flag),
         run_count_(run_count),
         ms_wait_time_(ms_wait_time) { }
 
@@ -174,50 +178,64 @@ class LockingThread : public Thread {
       if (ms_wait_time_ != 0) usleep(1000 * ms_wait_time_);
 
       the_lock_->lock();
-      (*shared_location_a_)++;
-      (*shared_location_b_)++;
+
+      ArbitraryDelay();
+      if (UNLIKELY(*shared_flag_)) goto no_mutex;
+
+      *shared_flag_ = true;
+      ArbitraryDelay();
+      if (UNLIKELY(!*shared_flag_)) goto no_mutex;
+
+      *shared_flag_ = false;
+      ArbitraryDelay();
+      if (UNLIKELY(*shared_flag_)) goto no_mutex;
+
       the_lock_->unlock();
     }
     return NULL;
+ no_mutex:
+    printf("error: no mutual exclusion!");
+    abort();
   }
 
  private:
   LockTy *the_lock_;
-  volatile long *shared_location_a_;
-  volatile long *shared_location_b_;
+  volatile bool *shared_flag_;
   const int run_count_;
   const int ms_wait_time_;
 };
 
 template<typename LockTy>
-static void bench_threads(string kind, int iteration_count) {
+static void simple_bench(string kind, int iteration_count) {
   NanoTimer timer(kind);
-  volatile long shared_location_a = 0, shared_location_b = 0;
+  volatile bool shared_flag = false;
   LockTy the_lock;
 
-  LockingThread<LockTy>
-      freq_thread(&the_lock, &shared_location_a, &shared_location_b,
-                  iteration_count, 0);
-  LockingThread<LockTy>
-      rare_thread(&the_lock, &shared_location_a, &shared_location_b, 1, 14);
+  TestThread<LockTy> fast_thread(&the_lock, &shared_flag, iteration_count, 0);
+  TestThread<LockTy> slow_thread_a(&the_lock, &shared_flag, 1, 14);
+  TestThread<LockTy> slow_thread_b(&the_lock, &shared_flag, 1, 13);
 
-  freq_thread.start();
-  rare_thread.start();
+  fast_thread.start();
+  slow_thread_a.start();
+  slow_thread_b.start();
 
-  freq_thread.join();
-  rare_thread.join();
-
-  if (shared_location_a != (iteration_count + 1) ||
-      shared_location_b != (iteration_count + 1)) {
-    printf("error: %s failed!\n", kind.c_str());
-    abort();
-  }
+  fast_thread.join();
+  slow_thread_a.join();
+  slow_thread_b.join();
 }
 
+class NoLock {
+ public:
+  void lock() {}
+  void unlock() {}
+};
+
 int main() {
-  const int kIterationCount = 1024 * 1024;
+  const int kIterationCount = kCheckThoroughly ? 1024 : (1024 * 1024);
   while (true) {
-    bench_threads<PthreadLock>("bench_threads; pthread_lock", kIterationCount);
-    bench_threads<BiasedLock>("bench_threads; biased_lock", kIterationCount);
+    simple_bench<PthreadLock>("simple_bench; pthread_lock", kIterationCount);
+    simple_bench<BiasedLock>("simple_bench; biased_lock", kIterationCount);
+    /// The following should call abort(), if kCheckThoroughly is true
+    // simple_bench<NoLock>("simple_bench; no_lock", kIterationCount);
   }
 }
