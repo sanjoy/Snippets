@@ -22,16 +22,20 @@ static void ArbitraryDelay() {
 #define LIKELY(condition)   __builtin_expect(condition, 1)
 #define MemoryBarrier __sync_synchronize
 #define SequentiallyConsistentLoad(ptr) __atomic_load_n(ptr, __ATOMIC_SEQ_CST)
+#define SequentiallyConsistentStore(ptr, value)         \
+  __atomic_store_n(ptr, value, __ATOMIC_SEQ_CST)
+#define AcquireLoad(ptr) __atomic_load_n(ptr, __ATOMIC_ACQUIRE)
+#define ReleaseStore(ptr, value) __atomic_store_n(ptr, value, __ATOMIC_RELEASE)
 
 const long kBackoffUsecsInitialDelay = 5;
 const long kBackoffUsecsDelayLimit = 1024 * 8;
 
-#define SPIN_WITH_EXPONENTIAL_BACKOFF(condition) do {           \
-    useconds_t backoff = kBackoffUsecsInitialDelay;             \
-    while (condition) {                                         \
-      usleep(backoff);                                          \
-      if (backoff < kBackoffUsecsDelayLimit) backoff *= 2;      \
-    }                                                           \
+#define SPIN_WITH_EXPONENTIAL_BACKOFF(condition) do {                   \
+    useconds_t backoff = kBackoffUsecsInitialDelay;                     \
+    while (condition) {                                                 \
+      usleep(backoff);                                                  \
+      if (backoff < (kBackoffUsecsDelayLimit / 2)) backoff *= 2;        \
+    }                                                                   \
   } while(false)
 
 class PthreadLock {
@@ -58,14 +62,14 @@ class PthreadLock {
 
 class BiasedLock {
  public:
-  BiasedLock() : state_(kStateUnbiased),
-                 revoke_requested_(false) { }
+  BiasedLock() :
+      state_(kStateUnbiased), revoke_requested_(false) { }
 
   void lock() {
     useconds_t failed_revoking_delay = kBackoffUsecsInitialDelay;
 
  retry:
-    switch (state_) {
+    switch (AcquireLoad(&state_)) {
       case kStateUnbiased:
         if (!CompareAndSwapBool(&state_, kStateUnbiased,
                                 kStateBiasedAndLocked)) {
@@ -78,24 +82,25 @@ class BiasedLock {
       case kStateBiasedAndLocked:
         assert(biasing_thread_id_ != pthread_self() &&
                "this lock is non-recurrent");
-        SPIN_WITH_EXPONENTIAL_BACKOFF(state_ == kStateBiasedAndLocked);
+        SPIN_WITH_EXPONENTIAL_BACKOFF(
+            AcquireLoad(&state_) == kStateBiasedAndLocked);
         goto retry;
 
       case kStateBiasedAndUnlocked:
         if (biasing_thread_id_ == pthread_self()) {
-          state_ = kStateBiasedAndLocked;
+          ReleaseStore(&state_, kStateBiasedAndLocked);
           if (UNLIKELY(SequentiallyConsistentLoad(&revoke_requested_))) {
-            state_ = kStateDefault;
+            ReleaseStore(&state_, kStateDefault);
             goto retry;
           }
         } else {
-          revoke_requested_ = true;
-          MemoryBarrier();
-          bool result = CompareAndSwapBool(&state_, kStateBiasedAndUnlocked,
-                                           kStateDefault);
+          SequentiallyConsistentStore(&revoke_requested_, true);
+          bool result =
+              CompareAndSwapBool(&state_, kStateBiasedAndUnlocked,
+                                 kStateDefault);
           if (UNLIKELY(!result)) {
             usleep(failed_revoking_delay);
-            if (failed_revoking_delay < kBackoffUsecsDelayLimit) {
+            if (failed_revoking_delay < (kBackoffUsecsDelayLimit / 2)) {
               failed_revoking_delay *= 2;
             }
           }
@@ -110,9 +115,9 @@ class BiasedLock {
   }
 
   void unlock() {
-    switch (state_) {
+    switch (AcquireLoad(&state_)) {
       case kStateBiasedAndLocked:
-        state_ = kStateBiasedAndUnlocked;
+        ReleaseStore(&state_, kStateBiasedAndUnlocked);
         break;
 
       case kStateDefault:
