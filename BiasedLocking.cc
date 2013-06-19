@@ -1,10 +1,8 @@
-#include <pthread.h>
-#include <unistd.h>
-
 #include <cassert>
 #include <cstdlib>
 
 #include <atomic>
+#include <chrono>
 #include <mutex>
 #include <thread>
 
@@ -16,7 +14,9 @@ using namespace utils;
 const bool kCheckThoroughly = false;
 
 static void ArbitraryDelay() {
-  if (kCheckThoroughly) usleep(rand() % 3);
+  if (kCheckThoroughly) {
+    this_thread::sleep_for(chrono::microseconds(rand() % 3));
+  }
 }
 
 #define CompareAndSwapBool(ptr, oldval, newval)         \
@@ -31,14 +31,14 @@ static void ArbitraryDelay() {
 #define AcquireLoad(ptr) __atomic_load_n(ptr, __ATOMIC_ACQUIRE)
 #define ReleaseStore(ptr, value) __atomic_store_n(ptr, value, __ATOMIC_RELEASE)
 
-const long kBackoffUsecsInitialDelay = 5;
-const long kBackoffUsecsDelayLimit = 1024 * 8;
+const std::chrono::microseconds kBackoffInitialDelay(5);
+const std::chrono::microseconds kBackoffDelayLimit(1000 * 8);
 
 #define SPIN_WITH_EXPONENTIAL_BACKOFF(condition) do {                   \
-    useconds_t backoff = kBackoffUsecsInitialDelay;                     \
+    auto backoff = kBackoffInitialDelay;                                \
     while (condition) {                                                 \
-      usleep(backoff);                                                  \
-      if (backoff < (kBackoffUsecsDelayLimit / 2)) backoff *= 2;        \
+      std::this_thread::sleep_for(backoff);                             \
+      if (backoff < (kBackoffDelayLimit / 2)) backoff *= 2;             \
     }                                                                   \
   } while(false)
 
@@ -48,7 +48,7 @@ class BiasedLock {
       state_(kStateUnbiased), revoke_requested_(false) { }
 
   void lock() {
-    useconds_t failed_revoking_delay = kBackoffUsecsInitialDelay;
+    auto failed_revoking_delay = kBackoffInitialDelay;
 
  retry:
     switch (AcquireLoad(&state_)) {
@@ -81,8 +81,8 @@ class BiasedLock {
               CompareAndSwapBool(&state_, kStateBiasedAndUnlocked,
                                  kStateDefault);
           if (UNLIKELY(!result)) {
-            usleep(failed_revoking_delay);
-            if (failed_revoking_delay < (kBackoffUsecsDelayLimit / 2)) {
+            this_thread::sleep_for(failed_revoking_delay);
+            if (failed_revoking_delay < (kBackoffDelayLimit / 2)) {
               failed_revoking_delay *= 2;
             }
           }
@@ -127,12 +127,14 @@ class BiasedLock {
   volatile bool revoke_requested_;
 };
 
-template<typename LockTy>
+template<typename LockTy, typename DurationTy>
 static void test_thread_body(LockTy *the_lock, volatile bool *shared_flag,
                              const int iterations_count,
-                             const int ms_wait_time) {
+                             const DurationTy wait_time) {
   for (int i = 0; i < iterations_count; i++) {
-    if (ms_wait_time != 0) usleep(1000 * ms_wait_time);
+    if (wait_time != DurationTy::zero()) {
+      this_thread::sleep_for(wait_time);
+    }
 
     the_lock->lock();
 
@@ -156,19 +158,19 @@ no_mutex:
   abort();
 }
 
-template<typename LockTy>
-static void simple_bench(string kind, int iterations_count,
-                         int second_thread_wait_time_ms) {
+template<typename LockTy, typename DurationTy>
+static void simple_bench(const string kind, const int iterations_count,
+                         const DurationTy second_thread_wait_time) {
   NanoTimer timer(kind);
   volatile bool shared_flag = false;
   LockTy the_lock;
 
-  thread fast_thread(test_thread_body<LockTy>, &the_lock, &shared_flag,
-                     iterations_count, 0);
-  thread slow_thread_a(test_thread_body<LockTy>, &the_lock, &shared_flag, 1,
-                       second_thread_wait_time_ms);
-  thread slow_thread_b(test_thread_body<LockTy>, &the_lock, &shared_flag, 1,
-                       second_thread_wait_time_ms);
+  thread fast_thread(test_thread_body<LockTy, DurationTy>, &the_lock,
+                     &shared_flag, iterations_count, DurationTy::zero());
+  thread slow_thread_a(test_thread_body<LockTy, DurationTy>, &the_lock,
+                       &shared_flag, 1, second_thread_wait_time);
+  thread slow_thread_b(test_thread_body<LockTy, DurationTy>, &the_lock,
+                       &shared_flag, 1, second_thread_wait_time);
 
   fast_thread.join();
   slow_thread_a.join();
@@ -184,10 +186,12 @@ class NoLock {
 int main() {
   const int kIterationCount = kCheckThoroughly ? 1024 : (1024 * 1024);
   while (true) {
-    simple_bench<mutex>("simple_bench; pthread_lock", kIterationCount,
-                        14);
-    simple_bench<BiasedLock>("simple_bench; biased_lock", kIterationCount,
-                             14);
+    simple_bench<mutex, chrono::milliseconds>("simple_bench; pthread_lock",
+                                              kIterationCount,
+                                              chrono::milliseconds(14));
+    simple_bench<BiasedLock, chrono::milliseconds>("simple_bench; biased_lock",
+                                                   kIterationCount,
+                                                   chrono::milliseconds(14));
     /// The following should call abort(), if kCheckThoroughly is true
     // simple_bench<NoLock>("simple_bench; no_lock", kIterationCount);
   }
