@@ -49,19 +49,20 @@ class BiasedLock {
           goto retry;
         }
 
-        biasing_thread_id_ = this_thread::get_id();
+        biasing_thread_id_.store(this_thread::get_id(), memory_order_release);
         break;
       }
 
       case kStateBiasedAndLocked:
-        assert(biasing_thread_id_ != this_thread::get_id() &&
+        assert(biasing_thread_id_.load() != this_thread::get_id() &&
                "this lock is non-recurrent");
         SPIN_WITH_EXPONENTIAL_BACKOFF(
             state_.load(memory_order_acquire) == kStateBiasedAndLocked);
         goto retry;
 
       case kStateBiasedAndUnlocked:
-        if (biasing_thread_id_ == this_thread::get_id()) {
+        if (biasing_thread_id_.load(memory_order_acquire) ==
+            this_thread::get_id()) {
           state_.store(kStateBiasedAndLocked, memory_order_release);
           if (UNLIKELY(revoke_requested_.load())) {
             state_.store(kStateDefault, memory_order_release);
@@ -105,7 +106,6 @@ class BiasedLock {
 
  private:
   mutex base_lock_;
-  thread::id biasing_thread_id_;
 
   enum {
     kStateUnbiased,
@@ -114,6 +114,7 @@ class BiasedLock {
     kStateDefault
   };
 
+  atomic<thread::id> biasing_thread_id_;
   atomic<unsigned> state_;
   atomic_bool revoke_requested_;
 };
