@@ -3,10 +3,14 @@
 
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <mutex>
 #include <thread>
 
 #include "nanotimer.hpp"
+
+#define UNLIKELY(condition) __builtin_expect(condition, 0)
+#define LIKELY(condition)   __builtin_expect(condition, 1)
 
 using namespace std;
 using namespace utils;
@@ -18,18 +22,6 @@ static void ArbitraryDelay() {
     this_thread::sleep_for(chrono::microseconds(rand() % 3));
   }
 }
-
-#define CompareAndSwapBool(ptr, oldval, newval)         \
-  __sync_bool_compare_and_swap(ptr, oldval, newval)
-
-#define UNLIKELY(condition) __builtin_expect(condition, 0)
-#define LIKELY(condition)   __builtin_expect(condition, 1)
-#define MemoryBarrier __sync_synchronize
-#define SequentiallyConsistentLoad(ptr) __atomic_load_n(ptr, __ATOMIC_SEQ_CST)
-#define SequentiallyConsistentStore(ptr, value)         \
-  __atomic_store_n(ptr, value, __ATOMIC_SEQ_CST)
-#define AcquireLoad(ptr) __atomic_load_n(ptr, __ATOMIC_ACQUIRE)
-#define ReleaseStore(ptr, value) __atomic_store_n(ptr, value, __ATOMIC_RELEASE)
 
 const std::chrono::microseconds kBackoffInitialDelay(5);
 const std::chrono::microseconds kBackoffDelayLimit(1000 * 8);
@@ -44,42 +36,41 @@ const std::chrono::microseconds kBackoffDelayLimit(1000 * 8);
 
 class BiasedLock {
  public:
-  BiasedLock() :
-      state_(kStateUnbiased), revoke_requested_(false) { }
+  BiasedLock() : state_(kStateUnbiased), revoke_requested_(false) { }
 
   void lock() {
     auto failed_revoking_delay = kBackoffInitialDelay;
 
  retry:
-    switch (AcquireLoad(&state_)) {
-      case kStateUnbiased:
-        if (!CompareAndSwapBool(&state_, kStateUnbiased,
-                                kStateBiasedAndLocked)) {
+    switch (state_.load(memory_order_acquire)) {
+      case kStateUnbiased: {
+        unsigned expected = kStateUnbiased;
+        if (!state_.compare_exchange_weak(expected, kStateBiasedAndLocked)) {
           goto retry;
         }
 
         biasing_thread_id_ = this_thread::get_id();
         break;
+      }
 
       case kStateBiasedAndLocked:
         assert(biasing_thread_id_ != this_thread::get_id() &&
                "this lock is non-recurrent");
         SPIN_WITH_EXPONENTIAL_BACKOFF(
-            AcquireLoad(&state_) == kStateBiasedAndLocked);
+            state_.load(memory_order_acquire) == kStateBiasedAndLocked);
         goto retry;
 
       case kStateBiasedAndUnlocked:
         if (biasing_thread_id_ == this_thread::get_id()) {
-          ReleaseStore(&state_, kStateBiasedAndLocked);
-          if (UNLIKELY(SequentiallyConsistentLoad(&revoke_requested_))) {
-            ReleaseStore(&state_, kStateDefault);
+          state_.store(kStateBiasedAndLocked, memory_order_release);
+          if (UNLIKELY(revoke_requested_.load())) {
+            state_.store(kStateDefault, memory_order_release);
             goto retry;
           }
         } else {
-          SequentiallyConsistentStore(&revoke_requested_, true);
-          bool result =
-              CompareAndSwapBool(&state_, kStateBiasedAndUnlocked,
-                                 kStateDefault);
+          revoke_requested_.store(true);
+          unsigned expected = kStateBiasedAndUnlocked;
+          bool result = state_.compare_exchange_strong(expected, kStateDefault);
           if (UNLIKELY(!result)) {
             this_thread::sleep_for(failed_revoking_delay);
             if (failed_revoking_delay < (kBackoffDelayLimit / 2)) {
@@ -97,9 +88,9 @@ class BiasedLock {
   }
 
   void unlock() {
-    switch (AcquireLoad(&state_)) {
+    switch (state_.load(memory_order_acquire)) {
       case kStateBiasedAndLocked:
-        ReleaseStore(&state_, kStateBiasedAndUnlocked);
+        state_.store(kStateBiasedAndUnlocked, memory_order_release);
         break;
 
       case kStateDefault:
@@ -113,6 +104,9 @@ class BiasedLock {
   }
 
  private:
+  mutex base_lock_;
+  thread::id biasing_thread_id_;
+
   enum {
     kStateUnbiased,
     kStateBiasedAndLocked,
@@ -120,11 +114,8 @@ class BiasedLock {
     kStateDefault
   };
 
-  mutex base_lock_;
-  thread::id biasing_thread_id_;
-
-  volatile unsigned state_;
-  volatile bool revoke_requested_;
+  atomic<unsigned> state_;
+  atomic_bool revoke_requested_;
 };
 
 template<typename LockTy, typename DurationTy>
@@ -186,7 +177,7 @@ class NoLock {
 int main() {
   const int kIterationCount = kCheckThoroughly ? 1024 : (1024 * 1024);
   while (true) {
-    simple_bench<mutex, chrono::milliseconds>("simple_bench; pthread_lock",
+    simple_bench<mutex, chrono::milliseconds>("simple_bench; standard_lock",
                                               kIterationCount,
                                               chrono::milliseconds(14));
     simple_bench<BiasedLock, chrono::milliseconds>("simple_bench; biased_lock",
