@@ -20,7 +20,7 @@ class NanoTimer {
     long seconds = end_.tv_sec  - start_.tv_sec;
     long useconds = end_.tv_usec - start_.tv_usec;
     double mtime = ((seconds) * 1000 + useconds/1000.0) + 0.5;
-    printf("%s: %0.3lf milliseconds\n", prefix_.c_str(), mtime);
+    std::printf("%s: %0.3lf milliseconds\n", prefix_.c_str(), mtime);
   }
 
  private:
