@@ -67,7 +67,7 @@ getPrincipalType :: Term -> Type
 getPrincipalType term =
   let (m, ty) = getConstraints term
       substs  = fromJust $ unify m
-  in foldl replace' ty $ reverse substs
+  in Prelude.foldl replace' ty $ reverse substs
   where
     replace' :: Type -> (String, Type) -> Type
     replace' k (a, b) = replace a b k
