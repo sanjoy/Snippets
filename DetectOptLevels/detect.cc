@@ -14,7 +14,7 @@ bool is_o0() __attribute__((noinline)) {
 	return malloc_was_called;
 }
 
-void o3_gvn_gadget(int a, int b) __attribute__((noinline)) {
+void o2_gvn_gadget(int a, int b) __attribute__((noinline)) {
 	static volatile int vol = 0;
 	int c = a + 1;
 	int d = c;
@@ -32,7 +32,7 @@ void o3_gvn_gadget(int a, int b) __attribute__((noinline)) {
 
 bool is_o2() __attribute__((noinline)) {
 	malloc_was_called = false;
-	o3_gvn_gadget(10, 20);
+	o2_gvn_gadget(10, 20);
 	return !malloc_was_called;
 }
 
