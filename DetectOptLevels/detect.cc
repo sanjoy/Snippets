@@ -8,10 +8,10 @@ void* operator new(size_t size) __attribute__((noinline)) {
     return std::malloc(size);
 }
 
-bool is_o0() __attribute__((noinline)) {
+bool is_o1() __attribute__((noinline)) {
 	malloc_was_called = false;
 	delete new int;
-	return malloc_was_called;
+	return !malloc_was_called;
 }
 
 void o2_gvn_gadget(int a, int b) __attribute__((noinline)) {
@@ -50,14 +50,14 @@ bool is_o3() __attribute__((noinline)) {
 }
 
 int main() {
-	if (is_o0()) {
-		printf("O0\n");
-	} else if (is_o3()) {
+	if (is_o3()) {
 		printf("O3\n");
 	} else if (is_o2()) {
 		printf("O2\n");
-	} else {
+	} else if (is_o1()) {
 		printf("O1\n");
+	} else {
+		printf("O0\n");
 	}
     return 0;
 }
